@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Space Word Cloud - Ukraine Conflict</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+        }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            z-index: 100;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+        .value-display {
+            display: inline-block;
+            margin-left: 10px;
+            width: 40px;
+            text-align: right;
+        }
+        button {
+            padding: 8px 12px;
+            background-color: #4169E1;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #3050B5;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">Loading Interactive Word Cloud...</div>
+    
+    <div class="controls" id="controls">
+        <div class="control-group">
+            <label for="speedControl">Movement Speed <span class="value-display" id="speedValue">1.0</span></label>
+            <input type="range" id="speedControl" min="0.1" max="3" step="0.1" value="1">
+        </div>
+        
+        <div class="control-group">
+            <label for="randomnessControl">Randomness <span class="value-display" id="randomnessValue">1.0</span></label>
+            <input type="range" id="randomnessControl" min="0.1" max="3" step="0.1" value="1">
+        </div>
+        
+        <div class="control-group">
+            <label for="dirChangeControl">Direction Change Frequency <span class="value-display" id="dirChangeValue">1.0</span></label>
+            <input type="range" id="dirChangeControl" min="0.1" max="3" step="0.1" value="1">
+        </div>
+        
+        <button id="resetButton">Reset Settings</button>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Global control values
+        const controls = {
+            speed: 1.0,
+            randomness: 1.0,
+            dirChangeFrequency: 1.0
+        };
+        
+        // Word data with theme related to Ukraine conflict
+        const words = [
+            { text: "UKRAINE", weight: 1.0, color: "#005BBB" },  // Ukraine blue
+            { text: "BETRAYAL", weight: 0.9, color: "#FF0000" },
+            { text: "PUTIN", weight: 0.85, color: "#800000" },
+            { text: "WAR", weight: 0.8, color: "#FF4500" },
+            { text: "RESISTANCE", weight: 0.75, color: "#FFD700" },  // Ukraine yellow
+            { text: "INVASION", weight: 0.7, color: "#B22222" },
+            { text: "CIVILIANS", weight: 0.65, color: "#FFFFFF" },
+            { text: "PROMISES", weight: 0.63, color: "#ADD8E6" },
+            { text: "BROKEN", weight: 0.6, color: "#A52A2A" },
+            { text: "COURAGE", weight: 0.58, color: "#FFD700" },
+            { text: "SOVEREIGNTY", weight: 0.55, color: "#4169E1" },
+            { text: "AGGRESSION", weight: 0.53, color: "#8B0000" },
+            { text: "SANCTIONS", weight: 0.5, color: "#FFA500" },
+            { text: "WEAPONS", weight: 0.48, color: "#808080" },
+            { text: "DEMOCRACY", weight: 0.45, color: "#00BFFF" },
+            { text: "TYRANNY", weight: 0.43, color: "#800000" },
+            { text: "ALLIANCE", weight: 0.4, color: "#1E90FF" },
+            { text: "HUMANITARIAN", weight: 0.38, color: "#00FF00" },
+            { text: "DESTRUCTION", weight: 0.35, color: "#FF6347" },
+            { text: "REFUGEES", weight: 0.33, color: "#E0FFFF" },
+            { text: "OLIGARCHS", weight: 0.3, color: "#C0C0C0" },
+            { text: "CORRUPTION", weight: 0.28, color: "#8B4513" },
+            { text: "RESILIENCE", weight: 0.25, color: "#FFFF00" },
+            { text: "FREEDOM", weight: 0.23, color: "#F5F5F5" },
+            { text: "ABANDONMENT", weight: 0.2, color: "#D3D3D3" }
+        ];
+
+        // Double the words to create more chaos
+        const moreWords = [...words];
+        for (let i = 0; i < 15; i++) {
+            const randomIndex = Math.floor(Math.random() * words.length);
+            moreWords.push(words[randomIndex]);
+        }
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x444444);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        directionalLight.position.set(5, 3, 5);
+        scene.add(directionalLight);
+
+        // Add a point light in the center
+        const centerLight = new THREE.PointLight(0xffaa00, 2, 50);
+        centerLight.position.set(0, 0, 0);
+        scene.add(centerLight);
+
+        // Add random colored lights throughout the scene
+        const colors = [0xff0000, 0x0000ff, 0xffff00, 0x00ffff];
+        for (let i = 0; i < 4; i++) {
+            const pointLight = new THREE.PointLight(colors[i], 1, 40);
+            const x = (Math.random() - 0.5) * 30;
+            const y = (Math.random() - 0.5) * 30;
+            const z = (Math.random() - 0.5) * 30;
+            pointLight.position.set(x, y, z);
+            scene.add(pointLight);
+        }
+
+        // Stars background
+        const starsGeometry = new THREE.BufferGeometry();
+        const starsMaterial = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.2,
+        });
+
+        const starsVertices = [];
+        for (let i = 0; i < 10000; i++) {
+            const x = (Math.random() - 0.5) * 2000;
+            const y = (Math.random() - 0.5) * 2000;
+            const z = (Math.random() - 0.5) * 2000;
+            starsVertices.push(x, y, z);
+        }
+
+        starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+        const stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Word Cloud Creation
+        const wordObjects = [];
+        
+        // Create movement patterns for words
+        function createMovementPattern() {
+            // Different movement types
+            const patterns = [
+                'chaotic',      // Random directional changes
+                'zigzag',       // Zigzag pattern
+                'spiral',       // Spiral outward
+                'bouncy',       // Bounces in a direction
+                'circleChange'  // Circles with changing radii
+            ];
+            
+            const selectedPattern = patterns[Math.floor(Math.random() * patterns.length)];
+            
+            // Base movement parameters (affected by speed control)
+            const baseSpeed = (0.1 + Math.random() * 0.4) * controls.speed;
+            
+            // Random directional vector (affected by randomness control)
+            const randomFactor = controls.randomness;
+            const direction = new THREE.Vector3(
+                (Math.random() - 0.5) * 2 * randomFactor,
+                (Math.random() - 0.5) * 2 * randomFactor,
+                (Math.random() - 0.5) * 2 * randomFactor
+            ).normalize().multiplyScalar(baseSpeed);
+            
+            // Random pivot point for circular motions
+            const pivotDistance = 5 + Math.random() * 25 * randomFactor;
+            const pivotPoint = new THREE.Vector3(
+                (Math.random() - 0.5) * pivotDistance,
+                (Math.random() - 0.5) * pivotDistance,
+                (Math.random() - 0.5) * pivotDistance
+            );
+            
+            return {
+                type: selectedPattern,
+                speed: baseSpeed,
+                direction: direction,
+                pivot: pivotPoint,
+                radius: 2 + Math.random() * 15 * randomFactor,
+                angle: Math.random() * Math.PI * 2,
+                angleSpeed: (Math.random() - 0.5) * 0.08 * controls.speed,
+                changeFrequency: 1 + Math.random() * 3 * controls.randomness,
+                lastChange: 0,
+                verticalFactor: Math.random() * 2 - 1,
+                zigzagFactor: Math.random() * 10 * randomFactor,
+                bounceDirection: new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                ).normalize().multiplyScalar(baseSpeed * 2)
+            };
+        }
+
+        // Create floating text
+        function createTextMesh(text, size, color, delay) {
+            // Use canvas to create text texture
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            const fontSize = size * 80; // Larger font size
+            canvas.width = text.length * fontSize * 0.7;
+            canvas.height = fontSize * 1.5;
+            
+            // Add glow effect to text
+            context.shadowColor = color;
+            context.shadowBlur = 20; // More glow
+            context.font = `bold ${fontSize}px Arial, sans-serif`;
+            context.fillStyle = color;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(text, canvas.width / 2, canvas.height / 2);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            
+            const geometry = new THREE.PlaneGeometry(
+                canvas.width / 40,
+                canvas.height / 40
+            );
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            // Start at center
+            mesh.position.set(0, 0, 0);
+            mesh.scale.set(0.1, 0.1, 0.1); // Start small
+            
+            // Add animation parameters
+            mesh.userData = {
+                movement: createMovementPattern(),
+                delay: delay,
+                activated: false,
+                elapsed: 0,
+                pulseFactor: Math.random() * 0.4 + 0.8, // More varied pulse
+                pulseSpeed: Math.random() * 0.01 + 0.005, // Faster pulse
+                changeDirCounter: 0,
+                nextDirChange: Math.random() * 2 + 1 // Change direction every 1-3 seconds
+            };
+            
+            return mesh;
+        }
+
+        // Update word position based on its movement pattern
+        function updateWordPosition(mesh, deltaTime, time) {
+            const movement = mesh.userData.movement;
+            mesh.userData.changeDirCounter += deltaTime;
+            
+            // Randomly change direction (affected by direction change frequency)
+            if (mesh.userData.changeDirCounter > mesh.userData.nextDirChange / controls.dirChangeFrequency) {
+                if (Math.random() < 0.3 * controls.randomness) { // Chance to change pattern type based on randomness
+                    movement.type = ['chaotic', 'zigzag', 'spiral', 'bouncy', 'circleChange'][Math.floor(Math.random() * 5)];
+                }
+                
+                // Update movement parameters
+                const dirRandomness = controls.randomness;
+                movement.direction.set(
+                    (Math.random() - 0.5) * 2 * dirRandomness,
+                    (Math.random() - 0.5) * 2 * dirRandomness,
+                    (Math.random() - 0.5) * 2 * dirRandomness
+                ).normalize().multiplyScalar(movement.speed);
+                
+                movement.angleSpeed = (Math.random() - 0.5) * 0.08 * controls.speed;
+                movement.verticalFactor = Math.random() * 2 - 1;
+                
+                mesh.userData.changeDirCounter = 0;
+                mesh.userData.nextDirChange = (Math.random() * 2 + 1) / controls.dirChangeFrequency;
+            }
+            
+            // Apply different movement patterns
+            let newPos = new THREE.Vector3();
+            
+            // Scale delta time by speed control to affect overall movement speed
+            const scaledDelta = deltaTime * controls.speed;
+            
+            switch (movement.type) {
+                case 'chaotic':
+                    // Chaotic random movement
+                    const scaledDir = movement.direction.clone().multiplyScalar(controls.speed);
+                    newPos.copy(mesh.position).add(scaledDir);
+                    break;
+                    
+                case 'zigzag':
+                    // Zigzag pattern
+                    const zigzag = Math.sin(time * 5 * controls.speed) * movement.zigzagFactor;
+                    const perpVector = new THREE.Vector3(
+                        -movement.direction.y,
+                        movement.direction.x,
+                        movement.direction.z
+                    ).normalize().multiplyScalar(zigzag * scaledDelta);
+                    
+                    const scaledDir2 = movement.direction.clone().multiplyScalar(controls.speed);
+                    newPos.copy(mesh.position)
+                          .add(scaledDir2)
+                          .add(perpVector);
+                    break;
+                    
+                case 'spiral':
+                    // Spiral outward
+                    movement.angle += movement.angleSpeed * controls.speed;
+                    movement.radius += 0.01 * controls.speed;
+                    
+                    const spiralX = movement.pivot.x + Math.cos(movement.angle) * movement.radius;
+                    const spiralY = movement.pivot.y + Math.sin(movement.angle * 0.5) * movement.radius * 0.5;
+                    const spiralZ = movement.pivot.z + Math.sin(movement.angle) * movement.radius;
+                    
+                    newPos.set(spiralX, spiralY, spiralZ);
+                    break;
+                    
+                case 'bouncy':
+                    // Bouncy movement
+                    const scaledBounce = movement.bounceDirection.clone().multiplyScalar(controls.speed);
+                    newPos.copy(mesh.position).add(scaledBounce);
+                    break;
+                    
+                case 'circleChange':
+                    // Circular with changing radius
+                    movement.angle += movement.angleSpeed * controls.speed;
+                    movement.radius = 5 + Math.sin(time * controls.speed) * 10 * controls.randomness;
+                    
+                    const circleX = movement.pivot.x + Math.cos(movement.angle) * movement.radius;
+                    const circleY = movement.pivot.y + Math.sin(time * 0.7 * controls.speed) * 5 * controls.randomness;
+                    const circleZ = movement.pivot.z + Math.sin(movement.angle) * movement.radius;
+                    
+                    newPos.set(circleX, circleY, circleZ);
+                    break;
+            }
+            
+            // Boundary check to keep words on screen
+            const bound = 40;
+            if (Math.abs(newPos.x) > bound || Math.abs(newPos.y) > bound || Math.abs(newPos.z) > bound) {
+                // If word goes off-screen, direct it back toward center
+                const toCenter = new THREE.Vector3(0, 0, 0).sub(mesh.position).normalize().multiplyScalar(movement.speed * 2);
+                mesh.position.add(toCenter);
+                
+                // Reset movement with new pattern
+                mesh.userData.movement = createMovementPattern();
+            } else {
+                mesh.position.copy(newPos);
+            }
+            
+            // Always face camera
+            mesh.lookAt(camera.position);
+            
+            // Add pulsing effect
+            const pulse = Math.sin(time * mesh.userData.pulseSpeed * 5 * controls.speed) * 0.2 + 1;
+            mesh.scale.set(
+                mesh.userData.pulseFactor * pulse,
+                mesh.userData.pulseFactor * pulse,
+                mesh.userData.pulseFactor * pulse
+            );
+        }
+
+        // Function to activate a word after its delay
+        function activateWord(mesh, deltaTime) {
+            if (!mesh.userData.activated) {
+                // Scale delay by speed control for faster/slower activation
+                mesh.userData.elapsed += deltaTime * controls.speed;
+                
+                // Check if delay has passed
+                if (mesh.userData.elapsed > mesh.userData.delay) {
+                    mesh.userData.activated = true;
+                    
+                    // Random initial position around center
+                    const startingOffset = new THREE.Vector3(
+                        (Math.random() - 0.5) * 5 * controls.randomness,
+                        (Math.random() - 0.5) * 5 * controls.randomness,
+                        (Math.random() - 0.5) * 5 * controls.randomness
+                    );
+                    
+                    mesh.position.copy(startingOffset);
+                    mesh.scale.set(1, 1, 1);
+                }
+            }
+        }
+
+        // Initialize word cloud
+        function initWordCloud() {
+            moreWords.forEach((word, index) => {
+                // Stagger word emergence
+                const delay = index * 50; // Reduced delay
+                const mesh = createTextMesh(
+                    word.text,
+                    word.weight * 0.5 + 0.2, // Size based on weight
+                    word.color,
+                    delay
+                );
+                
+                scene.add(mesh);
+                wordObjects.push(mesh);
+            });
+            
+            // Hide loading message
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Initialize
+        initWordCloud();
+
+        // Camera position
+        camera.position.z = 30;
+
+        // Create clock for delta time
+        const clock = new THREE.Clock();
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            const time = Date.now() * 0.002; // Time scale
+            
+            // Update each word
+            wordObjects.forEach(word => {
+                // Check if word should activate
+                activateWord(word, delta * 1000);
+                
+                // If word is active, update its position
+                if (word.userData.activated) {
+                    updateWordPosition(word, delta, time);
+                }
+            });
+            
+            // Rotate the stars slightly for more movement
+            stars.rotation.y += 0.001 * controls.speed;
+            stars.rotation.x += 0.0005 * controls.speed;
+            
+            // Pulse the center light more dramatically
+            centerLight.intensity = 2 + Math.sin(time * 5 * controls.speed) * 1;
+            
+            // Move camera slightly for dynamic effect
+            camera.position.x = Math.sin(time * 0.1) * 3 * controls.randomness;
+            camera.position.y = Math.cos(time * 0.2) * 2 * controls.randomness;
+            camera.lookAt(0, 0, 0);
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initialize the UI controls
+        function initControls() {
+            const speedControl = document.getElementById('speedControl');
+            const randomnessControl = document.getElementById('randomnessControl');
+            const dirChangeControl = document.getElementById('dirChangeControl');
+            const speedValue = document.getElementById('speedValue');
+            const randomnessValue = document.getElementById('randomnessValue');
+            const dirChangeValue = document.getElementById('dirChangeValue');
+            const resetButton = document.getElementById('resetButton');
+            
+            // Speed control
+            speedControl.addEventListener('input', () => {
+                controls.speed = parseFloat(speedControl.value);
+                speedValue.textContent = controls.speed.toFixed(1);
+                
+                // Update existing word movements
+                wordObjects.forEach(word => {
+                    if (word.userData.movement) {
+                        word.userData.movement.speed = word.userData.movement.speed * controls.speed / parseFloat(speedControl.dataset.lastValue || 1);
+                        word.userData.movement.angleSpeed = word.userData.movement.angleSpeed * controls.speed / parseFloat(speedControl.dataset.lastValue || 1);
+                    }
+                });
+                
+                speedControl.dataset.lastValue = controls.speed;
+            });
+            
+            // Randomness control
+            randomnessControl.addEventListener('input', () => {
+                controls.randomness = parseFloat(randomnessControl.value);
+                randomnessValue.textContent = controls.randomness.toFixed(1);
+            });
+            
+            // Direction change frequency control
+            dirChangeControl.addEventListener('input', () => {
+                controls.dirChangeFrequency = parseFloat(dirChangeControl.value);
+                dirChangeValue.textContent = controls.dirChangeFrequency.toFixed(1);
+            });
+            
+            // Reset button
+            resetButton.addEventListener('click', () => {
+                controls.speed = 1.0;
+                controls.randomness = 1.0;
+                controls.dirChangeFrequency = 1.0;
+                
+                speedControl.value = 1.0;
+                randomnessControl.value = 1.0;
+                dirChangeControl.value = 1.0;
+                
+                speedValue.textContent = '1.0';
+                randomnessValue.textContent = '1.0';
+                dirChangeValue.textContent = '1.0';
+                
+                speedControl.dataset.lastValue = 1.0;
+                
+                // Reset all word movements
+                wordObjects.forEach(word => {
+                    word.userData.movement = createMovementPattern();
+                });
+            });
+            
+            // Set initial last values
+            speedControl.dataset.lastValue = controls.speed;
+        }
+
+        // Initialize controls
+        initControls();
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
